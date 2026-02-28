@@ -21,6 +21,7 @@ public class JumpReset extends Module {
     private ButtonSetting requireMouseDown;
     private ButtonSetting requireMovingForward;
     private ButtonSetting requireAim;
+    private ButtonSetting holdingWeapon;
 
     private boolean setJump;
     private boolean ignoreNext;
@@ -34,9 +35,10 @@ public class JumpReset extends Module {
         super("Jump Reset", category.combat);
         this.registerSetting(chance = new SliderSetting("Chance", "%", 80, 0, 100, 1));
         this.registerSetting(minimizeMode = new  SliderSetting("Minimize", 2, minimizeModes));
+        this.registerSetting(holdingWeapon = new ButtonSetting("Holding weapon", false));
         this.registerSetting(requireMouseDown = new ButtonSetting("Require mouse down", false));
         this.registerSetting(requireMovingForward = new ButtonSetting("Require moving forward", true));
-        this.registerSetting(requireAim = new ButtonSetting("Require aim", true));
+        this.registerSetting(requireAim = new ButtonSetting("Require aim", false));
         this.closetModule = true;
     }
 
@@ -62,6 +64,7 @@ public class JumpReset extends Module {
             boolean mouseDown = mc.gameSettings.keyBindAttack.isKeyDown() || !requireMouseDown.isToggled();
             boolean aimingAt = !requireAim.isToggled() || checkAim();
             boolean forward = mc.gameSettings.keyBindForward.isKeyDown() || !requireMovingForward.isToggled();
+            boolean weapon = Utils.holdingWeapon() || !holdingWeapon.isToggled();
             boolean randomization = (int) chance.getInput() == 100 || Utils.randomizeDouble(0, 100) < chance.getInput();
             boolean minimizing = true;
             boolean fov = Utils.inFov(Utils.getDirection(), 330, RotationUtils.deltaAngle(mc.thePlayer.motionX, mc.thePlayer.motionZ));
@@ -75,7 +78,7 @@ public class JumpReset extends Module {
                 } break;
             }
 
-            if (!ignoreNext && !mc.thePlayer.isBurning() && onGround && aimingAt && forward && mouseDown && randomization && minimizing && !hasBadEffect() && fov) {
+            if (!ignoreNext && !mc.thePlayer.isBurning() && onGround && aimingAt && forward && weapon && mouseDown && randomization && minimizing && !hasBadEffect() && fov) {
                 KeyBinding.setKeyBindState(mc.gameSettings.keyBindJump.getKeyCode(), setJump = true);
                 KeyBinding.onTick(mc.gameSettings.keyBindJump.getKeyCode());
                 if (Raven.DEBUG) {
