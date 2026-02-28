@@ -1,0 +1,21 @@
+package keystrokesmod.command.impl;
+
+import keystrokesmod.module.impl.other.NameHider;
+import keystrokesmod.command.Command;
+
+public class Cname extends Command {
+    public Cname() {
+        super("cname");
+    }
+
+    @Override
+    public void onExecute(String[] args) {
+        if (args.length == 2) {
+            NameHider.fakeName = args[1];
+            chatWithPrefix("&7Name has been set to &b" + NameHider.fakeName + "&7.");
+        }
+        else {
+            syntaxError();
+        }
+    }
+}

@@ -1,0 +1,437 @@
+package keystrokesmod.clickgui.components.impl;
+
+import keystrokesmod.Raven;
+import keystrokesmod.clickgui.components.Component;
+import keystrokesmod.module.Module;
+import keystrokesmod.module.setting.Setting;
+import keystrokesmod.module.setting.impl.*;
+import keystrokesmod.utility.RenderUtils;
+import keystrokesmod.utility.Timer;
+import keystrokesmod.utility.Utils;
+import keystrokesmod.utility.profile.Manager;
+import keystrokesmod.utility.profile.ProfileModule;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.ScaledResolution;
+import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.GL11;
+
+import java.awt.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.nio.IntBuffer;
+
+public class ModuleComponent extends Component {
+    public Module mod;
+    public CategoryComponent categoryComponent;
+    public float yPos;
+    public ArrayList<Component> settings;
+    public boolean isOpened;
+    private boolean hovering;
+    private Timer hoverTimer;
+    private boolean hoverStarted;
+    private Timer smoothTimer;
+    private int smoothingY = 16;
+
+    private static final IntBuffer SCISSOR_BOX = BufferUtils.createIntBuffer(16);
+
+    private int originalHoverAlpha = 120;
+
+    private final int HOVER_COLOR = (new Color(0, 0, 0, originalHoverAlpha)).getRGB();
+    private final int UNSAVED_COLOR = new Color(114, 188, 250).getRGB();
+    private final int INVALID_COLOR = new Color(255, 80, 80).getRGB();
+    private final int ENABLED_COLOR = new Color(24, 154, 255).getRGB();
+    private final int DISABLED_COLOR = new Color(192, 192, 192).getRGB();
+
+    public ModuleComponent(Module mod, CategoryComponent p, float yPos) {
+        this.mod = mod;
+        this.categoryComponent = p;
+        this.yPos = yPos;
+        this.settings = new ArrayList();
+        this.isOpened = false;
+        float y = yPos + 12;
+        if (mod != null && !mod.getSettings().isEmpty()) {
+            for (Setting v : mod.getSettings()) {
+                if (!v.visible) {
+                    continue;
+                }
+                if (v instanceof SliderSetting) {
+                    SliderSetting n = (SliderSetting) v;
+                    SliderComponent s = new SliderComponent(n, this, y);
+                    this.settings.add(s);
+                    y += 12;
+                }
+                else if (v instanceof ButtonSetting) {
+                    ButtonSetting b = (ButtonSetting) v;
+                    ButtonComponent c = new ButtonComponent(mod, b, this, y);
+                    this.settings.add(c);
+                    y += 12;
+                }
+                else if (v instanceof DescriptionSetting) {
+                    DescriptionSetting d = (DescriptionSetting) v;
+                    DescriptionComponent m = new DescriptionComponent(d, this, y);
+                    this.settings.add(m);
+                    y += 12;
+                }
+                else if (v instanceof KeySetting) {
+                    KeySetting setting = (KeySetting) v;
+                    BindComponent keyComponent = new BindComponent(this, setting, y);
+                    this.settings.add(keyComponent);
+                    y += 12;
+                }
+                else if (v instanceof GroupSetting) {
+                    GroupSetting b = (GroupSetting) v;
+                    GroupComponent c = new GroupComponent(b, this, y);
+                    this.settings.add(c);
+                    y += 12;
+                }
+            }
+        }
+        this.settings.add(new BindComponent(this, y));
+    }
+
+    public void updateHeight(float newY) {
+        this.yPos = newY;
+        float y = this.yPos + 16;
+        Iterator var3 = this.settings.iterator();
+
+        while (true) {
+            while (var3.hasNext()) {
+                Component co = (Component) var3.next();
+                if (!isVisible(co)) {
+                    continue;
+                }
+                co.updateHeight(y);
+                if (co instanceof SliderComponent) {
+                    y += 16;
+                }
+                else if (co instanceof ButtonComponent || co instanceof BindComponent || co instanceof DescriptionComponent || co instanceof GroupComponent) {
+                    y += 12;
+                }
+            }
+
+            return;
+        }
+    }
+
+    public void render() {
+        if (hovering || hoverTimer != null) {
+            double hoverAlpha = (hovering && hoverTimer != null) ? hoverTimer.getValueFloat(0, originalHoverAlpha, 1) : (hoverTimer != null && !hovering) ? originalHoverAlpha - hoverTimer.getValueFloat(0, originalHoverAlpha, 1) : originalHoverAlpha;
+            if (hoverAlpha == 0) {
+                hoverTimer = null;
+            }
+            RenderUtils.drawRoundedRectangle(this.categoryComponent.getX(), this.categoryComponent.getY() + yPos, this.categoryComponent.getX() + this.categoryComponent.getWidth(), this.categoryComponent.getY() + 16 + this.yPos, 8, Utils.mergeAlpha(HOVER_COLOR, (int) hoverAlpha));
+        }
+        int button_rgb = this.mod.isEnabled() ? ENABLED_COLOR : DISABLED_COLOR;
+        if (this.mod.script != null && this.mod.script.error) {
+            button_rgb = INVALID_COLOR;
+        }
+        if (this.mod.moduleCategory() == Module.category.profiles && !(this.mod instanceof Manager) && !((ProfileModule) this.mod).saved && Raven.currentProfile.getModule() == this.mod) {
+            button_rgb = UNSAVED_COLOR;
+        }
+
+        if (smoothTimer != null) {
+            if (System.currentTimeMillis() - smoothTimer.last >= 280) {
+                smoothTimer = null;
+                smoothingY = isOpened ? getModuleHeight() : 16;
+            } else {
+                int height = getModuleHeight();
+                if (isOpened) {
+                    smoothingY = smoothTimer.getValueInt(16, height, 1);
+                    if (smoothingY == height) {
+                        smoothTimer = null;
+                    }
+                }
+                else {
+                    smoothingY = smoothTimer.getValueInt(height, 16, 1);
+                    if (smoothingY == 16) {
+                        smoothTimer = null;
+                    }
+                }
+            }
+        }
+
+        Minecraft.getMinecraft().fontRendererObj.drawStringWithShadow(this.mod.getName(), (float) (this.categoryComponent.getX() + this.categoryComponent.getWidth() / 2 - Minecraft.getMinecraft().fontRendererObj.getStringWidth(this.mod.getName()) / 2), (float) (this.categoryComponent.getY() + this.yPos + 4), button_rgb);
+        boolean scissorRequired = smoothTimer != null;
+        boolean wasScissorEnabled = false;
+        int prevScissorX = 0;
+        int prevScissorY = 0;
+        int prevScissorWidth = 0;
+        int prevScissorHeight = 0;
+        if (scissorRequired) {
+            wasScissorEnabled = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+            if (wasScissorEnabled) {
+                SCISSOR_BOX.clear();
+                GL11.glGetInteger(GL11.GL_SCISSOR_BOX, SCISSOR_BOX);
+                prevScissorX = SCISSOR_BOX.get(0);
+                prevScissorY = SCISSOR_BOX.get(1);
+                prevScissorWidth = SCISSOR_BOX.get(2);
+                prevScissorHeight = SCISSOR_BOX.get(3);
+            }
+            else {
+                GL11.glEnable(GL11.GL_SCISSOR_TEST);
+            }
+            ScaledResolution sr = new ScaledResolution(Minecraft.getMinecraft());
+            int scale = sr.getScaleFactor();
+            int scissorX = (int) ((this.categoryComponent.getX() - 2) * scale);
+            int scissorY = (int) ((sr.getScaledHeight() - (this.categoryComponent.getY() + this.yPos + smoothingY)) * scale);
+            int scissorW = (int) ((this.categoryComponent.getWidth() + 4) * scale);
+            int scissorH = (int) (smoothingY * scale);
+            if (wasScissorEnabled) {
+                int ix = Math.max(prevScissorX, scissorX);
+                int iy = Math.max(prevScissorY, scissorY);
+                int iW = Math.max(0, Math.min(prevScissorX + prevScissorWidth, scissorX + scissorW) - ix);
+                int iH = Math.max(0, Math.min(prevScissorY + prevScissorHeight, scissorY + scissorH) - iy);
+                GL11.glScissor(ix, iy, iW, iH);
+            }
+            else {
+                GL11.glScissor(scissorX, scissorY, scissorW, scissorH);
+            }
+        }
+
+        if (this.isOpened || smoothTimer != null) {
+            for (Component settingComponent : this.settings) {
+                if (!isVisible(settingComponent)) {
+                    continue;
+                }
+                settingComponent.render();
+            }
+        }
+
+        if (scissorRequired) {
+            if (wasScissorEnabled) {
+                GL11.glScissor(prevScissorX, prevScissorY, prevScissorWidth, prevScissorHeight);
+            }
+            else {
+                GL11.glDisable(GL11.GL_SCISSOR_TEST);
+            }
+        }
+    }
+
+    public int getHeight() {
+        if (smoothTimer != null) {
+            return smoothingY;
+        }
+        if (!this.isOpened) {
+            return 16;
+        }
+        else {
+            int h = 16;
+            Iterator var2 = this.settings.iterator();
+
+            while (true) {
+                while (var2.hasNext()) {
+                    Component c = (Component) var2.next();
+                    if (!isVisible(c)) {
+                        continue;
+                    }
+                    if (c instanceof SliderComponent) {
+                        h += 16;
+                    }
+                    else if (c instanceof ButtonComponent || c instanceof BindComponent || c instanceof DescriptionComponent || c instanceof GroupComponent) {
+                        h += 12;
+                    }
+                }
+
+                return h;
+            }
+        }
+    }
+
+    public void onSliderChange() {
+        for (Component c : this.settings) {
+            if (c instanceof SliderComponent) {
+                ((SliderComponent) c).onSliderChange();
+            }
+        }
+    }
+
+    public int getModuleHeight() {
+        int h = 16;
+        Iterator var2 = this.settings.iterator();
+
+        while (true) {
+            while (var2.hasNext()) {
+                Component c = (Component) var2.next();
+                if (!isVisible(c)) {
+                    continue;
+                }
+                if (c instanceof SliderComponent) {
+                    h += 16;
+                }
+                else if (c instanceof ButtonComponent || c instanceof BindComponent || c instanceof DescriptionComponent || c instanceof GroupComponent) {
+                    h += 12;
+                }
+            }
+
+            return h;
+        }
+    }
+
+    public void drawScreen(int x, int y) {
+        for (Component c : this.settings) {
+            c.drawScreen(x, y);
+        }
+        if (overModuleName(x, y) && this.categoryComponent.opened) {
+            hovering = true;
+            if (hoverTimer == null) {
+                (hoverTimer = new Timer(75)).start();
+                hoverStarted = true;
+            }
+        }
+        else {
+            if (hovering && hoverStarted) {
+                (hoverTimer = new Timer(75)).start();
+            }
+            hoverStarted = false;
+            hovering = false;
+        }
+    }
+
+    public String getName() {
+        return mod.getName();
+    }
+
+    public boolean onClick(int x, int y, int mouse) {
+        if (this.overModuleName(x, y) && mouse == 0 && this.mod.canBeEnabled()) {
+            this.mod.toggle();
+            if (this.mod.moduleCategory() != Module.category.profiles) {
+                if (Raven.currentProfile != null) {
+                    Raven.currentProfile.getModule().saved = false;
+                }
+            }
+        }
+
+        if (this.overModuleName(x, y) && mouse == 1) {
+            this.isOpened = !this.isOpened;
+            (this.smoothTimer = new Timer(250)).start();
+            return true;
+        }
+
+        for (Component settingComponent : this.settings) {
+            settingComponent.onClick(x, y, mouse);
+        }
+        return false;
+    }
+
+    public void mouseReleased(int x, int y, int m) {
+        for (Component c : this.settings) {
+            c.mouseReleased(x, y, m);
+        }
+
+    }
+
+    public void keyTyped(char t, int k) {
+        for (Component c : this.settings) {
+            c.keyTyped(t, k);
+        }
+    }
+
+    public void onScroll(int scroll) {
+        for (Component component : this.settings) {
+            component.onScroll(scroll);
+        }
+    }
+
+    public void onGuiClosed() {
+        for (Component c : this.settings) {
+            c.onGuiClosed();
+        }
+        smoothTimer = null;
+        hoverTimer = null;
+        smoothingY = getHeight();
+    }
+
+    public boolean overModuleName(int x, int y) {
+        return x > this.categoryComponent.getX() && x < this.categoryComponent.getX() + this.categoryComponent.getWidth() && y > this.categoryComponent.getModuleY() + this.yPos && y < this.categoryComponent.getModuleY() + 16 + this.yPos;
+    }
+
+    public void updateSettingPositions(int xOffset) {
+        float y = this.yPos + 12;
+        for (Component c : this.settings) {
+            if (!isVisible(c)) {
+                continue;
+            }
+            if (c instanceof DescriptionComponent) {
+                ((DescriptionComponent) c).o = y;
+                y += 12;
+            }
+            else if (c instanceof BindComponent) {
+                ((BindComponent) c).o = y;
+                if (((BindComponent) c).keySetting != null) { // not the bind for the module
+                    if (xOffset != 0 & isGroupOpened(c, false)) {
+                        ((BindComponent) c).x += xOffset;
+                        ((BindComponent) c).xOffset = xOffset;
+                    }
+                    y += 12;
+                }
+            }
+            else if (c instanceof SliderComponent) {
+                ((SliderComponent) c).o = y;
+                if (xOffset != 0 & isGroupOpened(c, false)) {
+                    ((SliderComponent) c).x += xOffset;
+                    ((SliderComponent) c).xOffset = xOffset;
+                    ((SliderComponent) c).renderLine = true;
+                }
+                else {
+                    ((SliderComponent) c).renderLine = false;
+                }
+                y += 16;
+            }
+            else if (c instanceof ButtonComponent) {
+                ((ButtonComponent) c).o = y;
+                if (xOffset != 0 & isGroupOpened(c, false)) {
+                    ((ButtonComponent) c).x += xOffset;
+                    ((ButtonComponent) c).xOffset = xOffset;
+                    ((ButtonComponent) c).renderLine = true;
+                }
+                else {
+                    ((ButtonComponent) c).renderLine = false;
+                }
+                y += 12;
+            }
+        }
+        this.categoryComponent.updateHeight();
+    }
+
+    public boolean isVisible(Component component) {
+        if (component instanceof SliderComponent) {
+            return isGroupOpened(component, ((SliderComponent) component).sliderSetting.visible);
+        }
+        if (component instanceof ButtonComponent) {
+            return isGroupOpened(component, ((ButtonComponent) component).buttonSetting.visible);
+        }
+        if (component instanceof DescriptionComponent) {
+            return ((DescriptionComponent) component).desc.visible;
+        }
+        if (component instanceof BindComponent) {
+            if (((BindComponent) component).keySetting != null) {
+                return isGroupOpened(component, ((BindComponent) component).keySetting.visible);
+            }
+        }
+        return true;
+    }
+
+    public boolean isGroupOpened(Component component, boolean defaultBool) {
+        String groupName = "";
+        if (component instanceof SliderComponent && ((SliderComponent) component).sliderSetting.groupSetting != null) {
+            groupName = ((SliderComponent) component).sliderSetting.groupSetting.getName();
+        }
+        if (component instanceof ButtonComponent && ((ButtonComponent) component).buttonSetting.group != null) {
+            groupName = ((ButtonComponent) component).buttonSetting.group.getName();
+        }
+        if (component instanceof BindComponent && ((BindComponent) component).keySetting != null && ((BindComponent) component).keySetting.group != null) {
+            groupName = ((BindComponent) component).keySetting.group.getName();
+        }
+        if (groupName.isEmpty()) { // no group exists for component, returning default
+            return defaultBool;
+        }
+        for (Component c : this.settings) {
+            if (c instanceof GroupComponent) {
+                if (((GroupComponent) c).setting.getName().equals(groupName)) { // group exsits
+                    return ((GroupComponent) c).opened;
+                }
+            }
+        }
+        return defaultBool;
+    }
+}
