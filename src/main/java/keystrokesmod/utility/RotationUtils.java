@@ -34,6 +34,21 @@ public class RotationUtils implements IMinecraftInstance {
         }
     }
 
+    public static float getSmooth(float from, float to, float speed) {
+        float f = MathHelper.wrapAngleTo180_float(to - from);
+
+
+        if (f > speed) {
+            f = speed;
+        }
+
+        if (f < -speed) {
+            f = -speed;
+        }
+
+        return from + f;
+    }
+
     public static float[] getRotations(BlockPos blockPos, final float n, final float n2) {
         final float[] array = getRotations(blockPos);
         return fixRotation(array[0], array[1], n, n2);

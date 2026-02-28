@@ -31,4 +31,9 @@ public class ClientRotationEvent extends Event {
         this.yaw = yaw;
         this.pitch = pitch;
     }
+
+    public void setRotations(Float[] rots) {
+        this.yaw = rots[0];
+        this.pitch = rots[1];
+    }
 }

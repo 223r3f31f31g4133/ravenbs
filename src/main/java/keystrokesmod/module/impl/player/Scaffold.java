@@ -26,7 +26,11 @@ import net.minecraftforge.client.event.MouseEvent;
 import net.minecraftforge.fml.common.FMLCommonHandler;
 import net.minecraftforge.fml.common.eventhandler.EventPriority;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
+import net.minecraftforge.fml.common.gameevent.TickEvent;
+import org.apache.commons.lang3.RandomUtils;
+import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
+import scala.tools.nsc.symtab.classfile.Pickler;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -44,7 +48,7 @@ public class Scaffold extends Module {
     public ButtonSetting showBlockCount;
     private ButtonSetting silentSwing;
 
-    private String[] rotationModes = new String[] { "§cDisabled", "Simple", "Offset", "Precise" };
+    private String[] rotationModes = new String[] { "§cDisabled", "Simple", "Offset", "Precise", "Accurate"};
     private String[] fakeRotationModes = new String[] { "§cDisabled", "Strict", "Smooth", "Spin" };
     private String[] fastScaffoldModes = new String[] { "§cDisabled", "Keep-Y" };
 
@@ -99,6 +103,8 @@ public class Scaffold extends Module {
 
     private int currentFace;
     private boolean enabledOffGround = false;
+    private int groundTicks;
+    private int airTicks;
 
     public Scaffold() {
         super("Scaffold", category.player);
@@ -150,6 +156,19 @@ public class Scaffold extends Module {
         KeyBinding.setKeyBindState(mc.gameSettings.keyBindAttack.getKeyCode(), false);
         KeyBinding.setKeyBindState(mc.gameSettings.keyBindUseItem.getKeyCode(), false);
         e.setCanceled(true);
+    }
+
+    @SubscribeEvent
+    public void onTick(TickEvent e) {
+        if (mc.thePlayer == null) return;
+        if (mc.thePlayer.onGround) {
+            airTicks = 0;
+            groundTicks++;
+        }
+        else {
+            airTicks++;
+            groundTicks = 0;
+        }
     }
 
     @SubscribeEvent
@@ -404,6 +423,14 @@ public class Scaffold extends Module {
                 e.setRotations(scaffoldYaw, scaffoldPitch);
                 //theYaw = e.getYaw();
                 break;
+            case 4:
+                float deltaYaw = airTicks == 1 ? 125f : 35f;
+                if (blockRotations != null) {
+                    scaffoldYaw = RotationUtils.getSmooth(scaffoldYaw, blockRotations[0], deltaYaw);
+                    scaffoldPitch = blockRotations[1];
+                }
+                e.setRotations(scaffoldYaw, scaffoldPitch);
+                break;
         }
         if (edge != 1) {
             firstStroke = System.currentTimeMillis();
@@ -425,7 +452,7 @@ public class Scaffold extends Module {
                 }
                 float forwardYaw = (mc.thePlayer.rotationYaw - hardcodedYaw() - 180);
                 e.setYaw(forwardYaw);
-                e.setPitch(10f);
+                e.setPitch(20f + RandomUtils.nextFloat(20f,50f));
             }
         }
         else {
@@ -705,6 +732,11 @@ public class Scaffold extends Module {
             return;
         }
 
+        if (preciseScanConditions()) {
+            BlockPos playerFeet = new BlockPos(mc.thePlayer.posX, mc.thePlayer.posY + 1, mc.thePlayer.posZ);
+            blocksInfo.sort(Comparator.comparingDouble(b -> b.blockPos.distanceSq(playerFeet)));
+        }
+
         double sumX = 0, sumY = !mc.thePlayer.onGround ? 0 : blocksInfo.get(0).blockPos.getY(), sumZ = 0;
         int index = 0;
         for (PlaceData blockssInfo : blocksInfo) {
@@ -738,6 +770,15 @@ public class Scaffold extends Module {
         lookVec = new Vec3(0.5D + getCoord(blockFacing.getOpposite(), "x") * 0.5D, 0.5D + getCoord(blockFacing.getOpposite(), "y") * 0.5D, 0.5D + getCoord(blockFacing.getOpposite(), "z") * 0.5D);
         hitVec = new Vec3(hitX, hitY, hitZ);
         blockInfo.hitVec = hitVec;
+    }
+
+    private boolean preciseScanConditions() {
+        return !Utils.isDiagonal(false) && !mc.thePlayer.onGround ||
+                mc.thePlayer.onGround && !usingFastScaffold() &&
+                        (
+                                Keyboard.isKeyDown(mc.gameSettings.keyBindJump.getKeyCode()) ||
+                                        !Keyboard.isKeyDown(mc.gameSettings.keyBindJump.getKeyCode())
+                        );
     }
 
     private double getCoord(EnumFacing facing, String axis) {
