@@ -423,14 +423,6 @@ public class Scaffold extends Module {
                 e.setRotations(scaffoldYaw, scaffoldPitch);
                 //theYaw = e.getYaw();
                 break;
-            case 4:
-                float deltaYaw = airTicks == 1 ? 125f : 35f;
-                if (blockRotations != null) {
-                    scaffoldYaw = RotationUtils.getSmooth(scaffoldYaw, blockRotations[0], deltaYaw);
-                    scaffoldPitch = blockRotations[1];
-                }
-                e.setRotations(scaffoldYaw, scaffoldPitch);
-                break;
         }
         if (edge != 1) {
             firstStroke = System.currentTimeMillis();
